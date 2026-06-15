@@ -590,8 +590,11 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
                       csr_vl_d = vlmax;
                     end else begin
                       // Normal stripmining
+                      // csr_vl_d = ((|acc_req_i.rs1[$bits(acc_req_i.rs1)-1:$bits(csr_vl_d)]) ||
+                      //   (vlen_t'(acc_req_i.rs1) > vlmax)) ? vlmax : vlen_t'(acc_req_i.rs1);
+                      vlen_t rs1_trunc = vlen_t'(acc_req_i.rs1[$bits(vlen_t)-1:0]);
                       csr_vl_d = ((|acc_req_i.rs1[$bits(acc_req_i.rs1)-1:$bits(csr_vl_d)]) ||
-                        (vlen_t'(acc_req_i.rs1) > vlmax)) ? vlmax : vlen_t'(acc_req_i.rs1);
+                                  (rs1_trunc > vlmax)) ? vlmax : rs1_trunc;
                     end
                   end
                 end
