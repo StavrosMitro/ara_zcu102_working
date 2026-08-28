@@ -109,6 +109,18 @@ module vmfpu import ara_pkg::*; import rvv_pkg::*; import fpnew_pkg::*;
   logic vinsn_queue_full;
   assign vinsn_queue_full = (vinsn_queue_q.commit_cnt == VInsnQueueDepth);
 
+  // ILA-DEBUG: the depth-4 MFPU queue, one copy per lane.
+  // 2026-07-29 capture had these all ZERO at the wedge, which is what exonerated
+  // Ara's arithmetic path. (mark_debug dropped -- task F1: CVA6 probes only)
+  logic [idx_width(VInsnQueueDepth):0] dbg_mfpu_issue_cnt;
+  logic [idx_width(VInsnQueueDepth):0] dbg_mfpu_proc_cnt;
+  logic [idx_width(VInsnQueueDepth):0] dbg_mfpu_commit_cnt;
+  logic                                dbg_mfpu_done;
+  assign dbg_mfpu_issue_cnt  = vinsn_queue_q.issue_cnt;
+  assign dbg_mfpu_proc_cnt   = vinsn_queue_q.processing_cnt;
+  assign dbg_mfpu_commit_cnt = vinsn_queue_q.commit_cnt;
+  assign dbg_mfpu_done       = |mfpu_vinsn_done_o;
+
   // Do we have a vector instruction ready to be issued?
   vfu_operation_t vinsn_issue_d, vinsn_issue_q;
   logic           vinsn_issue_d_valid, vinsn_issue_q_valid;
@@ -869,7 +881,7 @@ module vmfpu import ara_pkg::*; import rvv_pkg::*; import fpnew_pkg::*;
       },
       UnitTypes: '{
         '{default: PARALLEL}, // ADDMUL
-        '{default: MERGED},   // DIVSQRT
+        '{default: DISABLED},   // DIVSQRT
         '{default: PARALLEL}, // NONCOMP
         '{default: MERGED} // CONV
 `ifdef USE_PULP_FPU

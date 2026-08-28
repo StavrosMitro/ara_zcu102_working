@@ -64,6 +64,9 @@ module ara_sequencer import ara_pkg::*; import rvv_pkg::*; import cf_math_pkg::i
   logic [NrPEs-1:0][NrVInsn-1:0] pe_vinsn_running_d, pe_vinsn_running_q;
 
   // A set bit indicates that the corresponding vector instruction in running somewhere in Ara.
+  // ILA-DEBUG: global hazard/scoreboard bitmap. A bit stuck set at the wedge names
+  // the instruction ID whose completion never propagated back to the sequencer.
+  // (mark_debug dropped -- task F1: CVA6 probes only, Ara exonerated)
   logic [NrVInsn-1:0] vinsn_running_d, vinsn_running_q;
   vid_t               vinsn_id_n;
   logic               vinsn_running_full;
@@ -225,7 +228,37 @@ module ara_sequencer import ara_pkg::*; import rvv_pkg::*; import cf_math_pkg::i
   /////////////////
 
   // If the instruction requires an answer to Ariane, the sequencer needs to wait.
+  // ILA-DEBUG: WAIT = a memory op is parked waiting for addrgen_ack.
+  // (mark_debug dropped -- task F1: CVA6 probes only, Ara exonerated)
   enum logic { IDLE, WAIT } state_d, state_q;
+
+  // ILA-DEBUG: THE ENTRY HANDSHAKE -- this is where an instruction was lost.
+  // The 2026-07-29 capture proved a vle64 passed the exception check, was acked
+  // to CVA6, and then never reached any PE (all queues 0, no hazard bit, no AXI).
+  //   dbg_seq_accepted   : pulses once per instruction the sequencer takes in.
+  //                        MISSING pulse while the token toggled == the drop.
+  //   dbg_seq_acc_cnt    : free-running count of accepted instructions. Compare
+  //                        against cheshire's dbg_acc_req_cnt: 43 offered vs 42
+  //                        accepted localizes the loss with zero inference.
+  //   dbg_seq_token_q/in : the token handshake itself (accepted_insn is
+  //                        ara_req_valid_i & token mismatch -- note it does NOT
+  //                        consult ara_req_ready_o, hence the gold_ticket patch).
+  //   dbg_seq_req_ready  : sequencer's ready. accepted while ready==0 is the
+  //                        accept/stall race the gold ticket is meant to cover.
+  // (mark_debug dropped on all of the below -- task F1: CVA6 probes only, Ara exonerated)
+  logic       dbg_seq_accepted;
+  logic [7:0] dbg_seq_acc_cnt;
+  logic       dbg_seq_token_q, dbg_seq_token_in;
+  logic       dbg_seq_req_valid, dbg_seq_req_ready;
+  logic       dbg_seq_gold_ticket;
+  logic       dbg_seq_pe_req_valid;
+  logic [NrLanes-1:0] dbg_seq_lane_ready;
+  logic       dbg_seq_addrgen_ack;
+  vfu_e       dbg_seq_vfu;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) dbg_seq_acc_cnt <= '0;
+    else if (dbg_seq_accepted) dbg_seq_acc_cnt <= dbg_seq_acc_cnt + 8'd1;
+  end
 
   // For hazard detection, we need to know which vector instruction is reading/writing to each
   // vector register
@@ -311,6 +344,11 @@ module ara_sequencer import ara_pkg::*; import rvv_pkg::*; import cf_math_pkg::i
 
   // Counters keep track of how many instructions each unit is running.
   // They have the same size only to keep the code easy.
+  // ILA-DEBUG: per-VFU occupancy. vfu_e order:
+  //   [0]=Alu [1]=MFpu [2]=SlideUnit [3]=MaskUnit [4]=LoadUnit [5]=StoreUnit [6]=None
+  // 4 = full (InsnQueueDepth); 7 = UNDERFLOWED (counter.sv STICKY_OVERFLOW=0 wraps
+  // 0->7), which is >= depth and wedges vinsn_queue_ready permanently by itself.
+  // (mark_debug dropped -- task F1: CVA6 probes only, Ara exonerated)
   logic [NrVFUs-1:0] [idx_width(MaxVInsnQueueDepth + 1)-1:0] insn_queue_cnt_q;
   logic [NrVFUs-1:0] insn_queue_done;
   logic [NrVFUs-1:0] insn_queue_cnt_en, insn_queue_cnt_down, insn_queue_cnt_up;
@@ -651,6 +689,19 @@ module ara_sequencer import ara_pkg::*; import rvv_pkg::*; import cf_math_pkg::i
 
   // The new accepted instruction will not be immediately issued
   assign accepted_insn_stalled = accepted_insn & ~ara_req_ready_o;
+
+  // ILA-DEBUG: drive the entry-handshake probes declared near the FSM state.
+  // Placed here so every source is already declared/assigned above (no forward refs).
+  assign dbg_seq_accepted     = accepted_insn;
+  assign dbg_seq_token_q      = ara_req_token_q;
+  assign dbg_seq_token_in     = ara_req_i.token;
+  assign dbg_seq_req_valid    = ara_req_valid_i;
+  assign dbg_seq_req_ready    = ara_req_ready_o;
+  assign dbg_seq_gold_ticket  = |gold_ticket_q;
+  assign dbg_seq_pe_req_valid = pe_req_valid_o;
+  assign dbg_seq_lane_ready   = pe_req_ready_i[NrLanes-1:0];
+  assign dbg_seq_addrgen_ack  = addrgen_ack_i;
+  assign dbg_seq_vfu          = pe_req_o.vfu;
 
   // Masked instructions do use the mask unit as well
   always_comb begin

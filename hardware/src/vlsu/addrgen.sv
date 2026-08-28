@@ -230,6 +230,26 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
     WAIT_LAST_TRANSLATION
   } state_q, state_d;
 
+  // ILA-DEBUG: the unit that never produced the lost load's address.
+  // Placed after all declarations above (vinsn_running_q, state_q) -- no forward refs.
+  //   dbg_ag_pe_req_valid : is the sequencer offering the request here?
+  //   dbg_ag_is_ldst      : ...and is it a load/store?
+  //   dbg_ag_ack          : did we acknowledge it?
+  //   dbg_ag_ar_valid     : are we driving an AXI AR?
+  //   dbg_ag_running_id   : hazard bit of the offered request's ID -- the
+  //                         !vinsn_running_q[pe_req_i.id] gate at the accept.
+  // (mark_debug dropped on all of the below -- task F1: CVA6 probes only)
+  logic dbg_ag_pe_req_valid;
+  logic dbg_ag_is_ldst;
+  logic dbg_ag_ack;
+  logic dbg_ag_ar_valid;
+  logic dbg_ag_running_id;
+  assign dbg_ag_pe_req_valid = pe_req_valid_i;
+  assign dbg_ag_is_ldst      = is_load(pe_req_i.op) | is_store(pe_req_i.op);
+  assign dbg_ag_ack          = addrgen_ack_o;
+  assign dbg_ag_ar_valid     = axi_ar_valid_o;
+  assign dbg_ag_running_id   = vinsn_running_q[pe_req_i.id];
+
   axi_addr_t lookahead_addr_e_d, lookahead_addr_e_q;
   axi_addr_t lookahead_addr_se_d, lookahead_addr_se_q;
   vlen_t lookahead_len_d, lookahead_len_q;

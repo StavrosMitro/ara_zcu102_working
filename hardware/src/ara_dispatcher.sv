@@ -663,7 +663,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
                     end else begin
                       // Normal stripmining
                       csr_vl_d = ((|acc_req_i.rs1[$bits(acc_req_i.rs1)-1:$bits(csr_vl_d)]) ||
-                        (vlen_t'(acc_req_i.rs1) > vlmax)) ? vlmax : vlen_t'(acc_req_i.rs1);
+                        (acc_req_i.rs1[$bits(csr_vl_d)-1:0] > vlmax)) ? vlmax : acc_req_i.rs1[$bits(csr_vl_d)-1:0];
                     end
                   end
                 end
@@ -975,7 +975,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
                     ara_req.scale_vl      = 1'b1;
                     // If stride > vl, the vslideup has no effects
                     if (|ara_req.stride[$bits(ara_req.stride)-1:$bits(csr_vl_q)] ||
-                      (vlen_t'(ara_req.stride) >= csr_vl_q)) null_vslideup = 1'b1;
+                      (ara_req.stride[$bits(csr_vl_q)-1:0] >= csr_vl_q)) null_vslideup = 1'b1;
                   end
                   6'b001111: begin
                     ara_req.op            = ara_pkg::VSLIDEDOWN;
@@ -1217,7 +1217,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
                     ara_req.scale_vl      = 1'b1;
                     // If stride > vl, the vslideup has no effects
                     if (|ara_req.stride[$bits(ara_req.stride)-1:$bits(csr_vl_q)] ||
-                      (vlen_t'(ara_req.stride) >= csr_vl_q)) null_vslideup = 1'b1;
+                      (ara_req.stride[$bits(csr_vl_q)-1:0] >= csr_vl_q)) null_vslideup = 1'b1;
                   end
                   6'b001111: begin
                     ara_req.op            = ara_pkg::VSLIDEDOWN;
@@ -1917,7 +1917,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
                     ara_req.scale_vl = 1'b1;
                     // If stride > vl, the vslideup has no effects
                     if (|ara_req.stride[$bits(ara_req.stride)-1:$bits(csr_vl_q)] ||
-                      (vlen_t'(ara_req.stride) >= csr_vl_q)) null_vslideup = 1'b1;
+                      (ara_req.stride[$bits(csr_vl_q)-1:0] >= csr_vl_q)) null_vslideup = 1'b1;
                   end
                   6'b001111: begin // vslide1down
                     ara_req.op      = ara_pkg::VSLIDEDOWN;
@@ -2613,7 +2613,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
                     ara_req.scale_vl = 1'b1;
                     // If stride > vl, the vslideup has no effects
                     if (|ara_req.stride[$bits(ara_req.stride)-1:$bits(csr_vl_q)] ||
-                      (vlen_t'(ara_req.stride) >= csr_vl_q)) null_vslideup = 1'b1;
+                      (ara_req.stride[$bits(csr_vl_q)-1:0] >= csr_vl_q)) null_vslideup = 1'b1;
                     end
                     6'b001111: begin // vfslide1down
                       ara_req.op     = ara_pkg::VSLIDEDOWN;
