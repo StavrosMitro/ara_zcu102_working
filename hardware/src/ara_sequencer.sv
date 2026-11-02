@@ -703,6 +703,47 @@ module ara_sequencer import ara_pkg::*; import rvv_pkg::*; import cf_math_pkg::i
   assign dbg_seq_addrgen_ack  = addrgen_ack_i;
   assign dbg_seq_vfu          = pe_req_o.vfu;
 
+`ifdef PROBE_VEC  // build knob: make ... probes=vec   (cheshire: deps/ara/cheshire/Makefile)
+  ///////////////////////////////////////////////////////////////////////////
+  //  ILA PROBES -- one vector instruction, sequencer's view.             //
+  //                                                                       //
+  //  The SAME definition times a load and a slide, which is the point:    //
+  //    Q0  dbg_q_acc       sequencer takes the instruction in             //
+  //    Q1  dbg_q_iss_ld/sl first cycle it is offered to VLDU / SLDU       //
+  //        (pe_req_valid_o is registered and may stay high until every    //
+  //         target PE is ready -- the decoder uses its RISING edge)       //
+  //    Q2  dbg_q_done_ld/sl that unit reports the instruction finished    //
+  //    --  dbg_q_idle      whole Ara idle again (all units, all lanes)     //
+  //  Q1->Q2 is the unit's own execution time; Q0->Q1 is sequencer queue   //
+  //  and hazard wait. A load additionally shows its AXI part on the       //
+  //  PROBE_MEM A1 point; a slide has no memory part at all.               //
+  //  Paired with the PROBE_VEC block in cheshire_soc.sv (CVA6<->Ara).     //
+  ///////////////////////////////////////////////////////////////////////////
+  (* mark_debug = "true" *) logic dbg_q_acc, dbg_q_reqv, dbg_q_reqr;
+  (* mark_debug = "true" *) logic dbg_q_issv, dbg_q_iss_ld, dbg_q_iss_sl;
+  (* mark_debug = "true" *) logic dbg_q_rdy_ld, dbg_q_rdy_sl;
+  (* mark_debug = "true" *) logic dbg_q_done_ld, dbg_q_done_sl, dbg_q_done_st;
+  (* mark_debug = "true" *) logic dbg_q_done_alu, dbg_q_done_fpu;
+  (* mark_debug = "true" *) logic dbg_q_respv, dbg_q_idle;
+  (* mark_debug = "true" *) logic [$bits(vfu_e)-1:0] dbg_q_vfu;
+  assign dbg_q_acc      = accepted_insn;
+  assign dbg_q_reqv     = ara_req_valid_i;
+  assign dbg_q_reqr     = ara_req_ready_o;
+  assign dbg_q_issv     = pe_req_valid_o;
+  assign dbg_q_vfu      = pe_req_o.vfu;
+  assign dbg_q_iss_ld   = pe_req_valid_o & (pe_req_o.vfu == VFU_LoadUnit);
+  assign dbg_q_iss_sl   = pe_req_valid_o & (pe_req_o.vfu == VFU_SlideUnit);
+  assign dbg_q_rdy_ld   = pe_req_ready_i[NrLanes + OffsetLoad];
+  assign dbg_q_rdy_sl   = pe_req_ready_i[NrLanes + OffsetSlide];
+  assign dbg_q_done_ld  = insn_queue_done[VFU_LoadUnit];
+  assign dbg_q_done_sl  = insn_queue_done[VFU_SlideUnit];
+  assign dbg_q_done_st  = insn_queue_done[VFU_StoreUnit];
+  assign dbg_q_done_alu = insn_queue_done[VFU_Alu];
+  assign dbg_q_done_fpu = insn_queue_done[VFU_MFpu];
+  assign dbg_q_respv    = ara_resp_valid_o;
+  assign dbg_q_idle     = ara_idle_o;
+`endif // PROBE_VEC
+
   // Masked instructions do use the mask unit as well
   always_comb begin
     target_vfus_vec                = target_vfus(ara_req_i.op);

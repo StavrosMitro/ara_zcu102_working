@@ -63,6 +63,35 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
   `include "common_cells/registers.svh"
 
+  // ==========================================================================
+  // FIX 2026-08-29: FLEN of the scalar core feeding us.
+  //
+  // CVA6 NaN-boxes a narrower float into FLEN bits -- NOT unconditionally 64.
+  // FLEN is 64 only with the D extension; with RVD=0 (FP64 dropped for area)
+  // FLEN is 32, so CVA6 can only ever produce a 32-bit box like 0xFFFF_3C00
+  // for an FP16 scalar. The check further down tested rs1[63:16], which can
+  // NEVER be all-ones in that configuration, so EVERY .vf instruction had its
+  // scalar operand silently replaced by a NaN.
+  //
+  // Measured on ZCU102 (vec_test, both 2- and 4-lane bitstreams): vfmacc.vf and
+  // vfslide1down.vf returned 0x7e00 for every element -- the literal constant
+  // in that check -- while pure vector-vector paths (vle16/vse16, the slide's
+  // vector shift) were bit-exact. vggnet16 conv1 gave 393216/393216 NaN.
+  //
+  // Derived from CVA6Cfg so it cannot desync from the core's configuration.
+  // ==========================================================================
+  // Read FLEN straight from the core's own config rather than re-deriving it.
+  // build_config_pkg.sv: FLen = RVD ? 64 : RVF ? 32 : XF16 ? 16 : ...
+  // Current ZCU102 config is RVD=0, RVF=1, XF16=1 -> FLen = 32 (the scalar FPU
+  // always carries FP16 *and* FP32; only FP64 was dropped). This is independent
+  // of the `fpu=` knob, which selects Ara's VECTOR precision only.
+  localparam int unsigned AraScalarFLen = CVA6Cfg.FLen;
+  // Clamped part-select bounds: when the scalar format is as wide as FLEN there
+  // are no upper bits to box, so the check is skipped -- but the bound must
+  // still elaborate to a legal range, hence the clamp.
+  localparam int unsigned AraBoxHi16 = (AraScalarFLen > 16) ? AraScalarFLen-1 : 16;
+  localparam int unsigned AraBoxHi32 = (AraScalarFLen > 32) ? AraScalarFLen-1 : 32;
+
   assign core_st_pending_o = acc_req_i.store_pending;
 
   ////////////
@@ -2807,9 +2836,14 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
                   endcase
 
                   // Check if the FP scalar operand is NaN-boxed. If not, replace it with a NaN.
+                  // Box width is FLEN, not a hardcoded 64 -- see AraScalarFLen above.
+                  // EW32 with FLEN==32 needs no box: the value fills the whole register,
+                  // so there are no upper bits to check and the operand is always valid.
                   case (csr_vtype_q.vsew)
-                    EW16: if (~(&acc_req_i.rs1[63:16])) ara_req.scalar_op = 64'h0000000000007e00;
-                    EW32: if (~(&acc_req_i.rs1[63:32])) ara_req.scalar_op = 64'h000000007fc00000;
+                    EW16: if ((AraScalarFLen > 16) && ~(&acc_req_i.rs1[AraBoxHi16:16]))
+                            ara_req.scalar_op = 64'h0000000000007e00;
+                    EW32: if ((AraScalarFLen > 32) && ~(&acc_req_i.rs1[AraBoxHi32:32]))
+                            ara_req.scalar_op = 64'h000000007fc00000;
                   endcase
 
                   // Instructions with an integer LMUL have extra constraints on the registers they
