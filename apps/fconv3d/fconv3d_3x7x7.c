@@ -64,7 +64,7 @@ void fconv3d_CHx7x7(double *o, double *i, double *f, int64_t M, int64_t N,
   for (unsigned long int n = 0; n < N; n += block_size_n) {
     // Set the vector length
     const unsigned long int n_ = MIN(N - n, block_size_n);
-
+    
     // Find pointers to the submatrices
     const double *i_ = i + n;
     double *o_ = o + n;

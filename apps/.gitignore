@@ -1,2 +1,22 @@
 bin
 common/link.ld
+common/link.fpga.ld
+*.o
+*.o.spike
+*.o.fpga
+*.o.fpga16
+
+# vggnet: dataset dumps, large binaries, and trained artifacts
+vggnet/CIFAR-100-C/
+vggnet/cifar-100-binary/
+vggnet/cifar10/
+vggnet/kernel/*.bin
+vggnet/kernel/*.bin.full
+vggnet/*.npy
+vggnet/*.weights
+vggnet/minivgg_train
+vggnet/vggnet_train
+
+# build-knob stamps (see VGGNET_FLAGS_STAMP in Makefile)
+vggnet/.build_flags
+fc_layer32/generated_data/.params

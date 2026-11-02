@@ -1,0 +1,88 @@
+CC = gcc
+CFLAGS = -w -O3 -g
+LDFLAGS = -lm -lpthread
+
+# Build mode for alexnet.c compile-time switches.
+# Usage:
+#   make -f gccMakefile MODE=inference
+#   make -f gccMakefile MODE=train BATCHSIZE=128 EPOCHS=20
+MODE ?= inference
+BATCHSIZE ?= 400
+EPOCHS ?= 1000
+INFER_IDX ?= -1
+LOSS ?= MSE
+
+ifeq ($(LOSS),MSE)
+LOSS_DEFS = -DSET_MSE
+else ifeq ($(LOSS),CEL)
+LOSS_DEFS = -DSET_CEL
+else
+$(error Unsupported LOSS='$(LOSS)'. Use LOSS=MSE or LOSS=CEL)
+endif
+
+ifeq ($(MODE),train)
+MODE_DEFS = -DALEXNET_MODE_TRAIN -DALEXNET_BATCHSIZE=$(BATCHSIZE) -DALEXNET_EPOCHS=$(EPOCHS)
+else ifeq ($(MODE),inference)
+MODE_DEFS = -DALEXNET_MODE_INFERENCE -DALEXNET_INFER_IDX=$(INFER_IDX)
+else
+$(error Unsupported MODE='$(MODE)'. Use MODE=train or MODE=inference)
+endif
+
+TARGET = alexnet_native
+OBJDIR = ./obj_native/
+ROOT = ./
+KERNEL = ./kernel/
+
+LAYER_OBJ = fc_layer.o
+LAYER_OBJS = $(addprefix $(OBJDIR), $(LAYER_OBJ))
+
+TAR_OBJ = train.o inference.o data.o matrix.o weights.o image_inference.o dataset_bin.o
+TAR_OBJS = $(addprefix $(OBJDIR), $(TAR_OBJ))
+
+all: $(TARGET)
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+# Compile weights.c without optimizations for easier debugging/compatibility.
+$(OBJDIR)weights.o: $(KERNEL)weights.c | $(OBJDIR)
+	$(CC) $(filter-out -O%,$(CFLAGS)) -O0 -c $< -o $@
+
+# Κανόνας για C αρχεία
+
+$(OBJDIR)train.o: $(KERNEL)train.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)inference.o: $(KERNEL)inference.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)data.o: $(KERNEL)data.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)matrix.o: $(KERNEL)matrix.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)image_inference.o: $(KERNEL)image_inference.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)fc_layer.o: $(KERNEL)fc_layer.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Κανόνας για το data.S (Η εντολή .incbin δουλεύει και στον x86 Assembler!)
+$(OBJDIR)dataset_bin.o: $(ROOT)data.S | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TARGET): $(TAR_OBJS) $(LAYER_OBJS) $(ROOT)main.c
+	$(CC) $(CFLAGS) $(MODE_DEFS) $(LOSS_DEFS) $(ROOT)main.c $(TAR_OBJS) $(LAYER_OBJS) -o $@ $(LDFLAGS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+run-train:
+	$(MAKE) -f gccMakefile MODE=train run
+
+run-inference:
+	$(MAKE) -f gccMakefile MODE=inference run
+
+clean:
+	rm -rf $(OBJDIR) $(TARGET)

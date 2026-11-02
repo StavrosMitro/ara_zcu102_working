@@ -1,0 +1,105 @@
+CC = gcc
+CFLAGS = -w -O3 -g
+LDFLAGS = -lm -lpthread
+
+# Build mode for alexnet.c compile-time switches.
+# Usage:
+#   make -f gccMakefile MODE=train
+#   make -f gccMakefile MODE=train BATCHSIZE=4 EPOCHS=3 C_IN=64 C_OUT=64 H=16 W=16
+MODE      ?= inference
+BATCHSIZE ?= 4
+EPOCHS    ?= 3
+INFER_IDX ?= -1
+LOSS      ?= MSE
+
+# Spatial / channel dimensions (override to benchmark different configs).
+# Kernel stays 3x3; same-padding so OUT_H=IN_H, OUT_W=IN_W.
+C_IN  ?= 43
+C_OUT ?= 43
+H     ?= 8
+W     ?= 8
+
+# Derived: im2col scratch size for layer 1 (one image, computed by shell).
+CONV1_XCOL_ELEMS := $(shell expr $(C_IN) \* 9 \* $(H) \* $(W))
+
+ifeq ($(LOSS),MSE)
+LOSS_DEFS = -DSET_MSE
+else ifeq ($(LOSS),CEL)
+LOSS_DEFS = -DSET_CEL
+else
+$(error Unsupported LOSS='$(LOSS)'. Use LOSS=MSE or LOSS=CEL)
+endif
+
+DIM_DEFS = -DCONV1_IN_CHANNELS=$(C_IN)         \
+           -DCONV1_OUT_CHANNELS=$(C_OUT)        \
+           -DCONV1_IN_H=$(H) -DCONV1_IN_W=$(W) \
+           -DCONV1_OUT_H=$(H) -DCONV1_OUT_W=$(W) \
+           -DCONV1_XCOL_ELEMS=$(CONV1_XCOL_ELEMS)
+
+ifeq ($(MODE),train)
+MODE_DEFS = -DALEXNET_MODE_TRAIN -DALEXNET_BATCHSIZE=$(BATCHSIZE) -DALEXNET_EPOCHS=$(EPOCHS)
+else ifeq ($(MODE),inference)
+MODE_DEFS = -DALEXNET_MODE_INFERENCE -DALEXNET_INFER_IDX=$(INFER_IDX)
+else
+$(error Unsupported MODE='$(MODE)'. Use MODE=train or MODE=inference)
+endif
+
+TARGET = alexnet_native
+OBJDIR = ./obj_native/
+ROOT = ./
+KERNEL = ./kernel/
+
+LAYER_OBJ = fc_layer.o
+LAYER_OBJS = $(addprefix $(OBJDIR), $(LAYER_OBJ))
+
+TAR_OBJ = train.o inference.o data.o matrix.o weights.o image_inference.o dataset_bin.o
+TAR_OBJS = $(addprefix $(OBJDIR), $(TAR_OBJ))
+
+all: $(TARGET)
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+# Common defines passed to every compilation unit so static buffer sizes match.
+ALL_DEFS = $(MODE_DEFS) $(LOSS_DEFS) $(DIM_DEFS)
+
+# Compile weights.c without optimizations for easier debugging/compatibility.
+$(OBJDIR)weights.o: $(KERNEL)weights.c | $(OBJDIR)
+	$(CC) $(filter-out -O%,$(CFLAGS)) -O0 $(ALL_DEFS) -c $< -o $@
+
+$(OBJDIR)train.o: $(KERNEL)train.c | $(OBJDIR)
+	$(CC) $(CFLAGS) $(ALL_DEFS) -c $< -o $@
+
+$(OBJDIR)inference.o: $(KERNEL)inference.c | $(OBJDIR)
+	$(CC) $(CFLAGS) $(ALL_DEFS) -c $< -o $@
+
+$(OBJDIR)data.o: $(KERNEL)data.c | $(OBJDIR)
+	$(CC) $(CFLAGS) $(ALL_DEFS) -c $< -o $@
+
+$(OBJDIR)matrix.o: $(KERNEL)matrix.c | $(OBJDIR)
+	$(CC) $(CFLAGS) $(ALL_DEFS) -c $< -o $@
+
+$(OBJDIR)image_inference.o: $(KERNEL)image_inference.c | $(OBJDIR)
+	$(CC) $(CFLAGS) $(ALL_DEFS) -c $< -o $@
+
+$(OBJDIR)fc_layer.o: $(KERNEL)fc_layer.c | $(OBJDIR)
+	$(CC) $(CFLAGS) $(ALL_DEFS) -c $< -o $@
+
+# Κανόνας για το data.S (Η εντολή .incbin δουλεύει και στον x86 Assembler!)
+$(OBJDIR)dataset_bin.o: $(ROOT)data.S | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TARGET): $(TAR_OBJS) $(LAYER_OBJS) $(ROOT)main.c
+	$(CC) $(CFLAGS) $(MODE_DEFS) $(LOSS_DEFS) $(DIM_DEFS) $(ROOT)main.c $(TAR_OBJS) $(LAYER_OBJS) -o $@ $(LDFLAGS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+run-train:
+	$(MAKE) -f gccMakefile MODE=train run
+
+run-inference:
+	$(MAKE) -f gccMakefile MODE=inference run
+
+clean:
+	rm -rf $(OBJDIR) $(TARGET)

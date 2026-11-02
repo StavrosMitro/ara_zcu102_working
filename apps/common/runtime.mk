@@ -19,7 +19,18 @@
 SHELL = /usr/bin/env bash
 
 ROOT_DIR := $(patsubst %/,%, $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-ARA_DIR := $(shell git rev-parse --show-toplevel 2>/dev/null || echo $$ARA_DIR)
+
+# Use the nearest ancestor that contains Ara's shared configuration files. This
+# matters when the apps checkout itself is a Git repository while the real Ara
+# repo lives one directory above it.
+ARA_DIR := $(shell \
+	if [ -f "$(CURDIR)/../config/default.mk" ]; then \
+		cd "$(CURDIR)/.." && pwd; \
+	elif [ -f "$(CURDIR)/config/default.mk" ]; then \
+		cd "$(CURDIR)" && pwd; \
+	else \
+		git -C "$(CURDIR)" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$$ARA_DIR"; \
+	fi)
 
 # Choose Ara's configuration
 ifndef config
@@ -75,6 +86,7 @@ spike_env_dir ?= $(ARA_DIR)/apps/riscv-tests
 SPIKE_INC     ?= -I$(spike_env_dir)/env -I$(spike_env_dir)/benchmarks/common
 SPIKE_CCFLAGS ?= -DPREALLOCATE=1 -DSPIKE=1 $(SPIKE_INC)
 SPIKE_LDFLAGS ?= -nostdlib -T$(spike_env_dir)/benchmarks/common/test.ld
+FPGA_CCFLAGS  ?= -DFPGA=1
 RISCV_SIM     ?= $(ISA_SIM_INSTALL_DIR)/bin/spike
 RISCV_SIM_MOD ?= $(ISA_SIM_MOD_INSTALL_DIR)/bin/spike
 # VLEN should be lower or equal than 4096 because of spike restrictions
@@ -100,25 +112,89 @@ DEFINES += $(ENV_DEFINES) $(MAKE_DEFINES)
 RISCV_WARNINGS += -Wunused-variable -Wall -Wextra -Wno-unused-command-line-argument # -Werror
 
 # LLVM Flags
-LLVM_FLAGS     ?= -march=rv64gcv_zfh_zvfh0p1 -menable-experimental-extensions -mabi=$(RISCV_ABI) -mno-relax -fuse-ld=lld
-LLVM_V_FLAGS   ?= -fno-vectorize -mllvm -scalable-vectorization=off -mllvm -riscv-v-vector-bits-min=0 -Xclang -target-feature -Xclang +no-optimized-zero-stride-load
-RISCV_FLAGS    ?= $(LLVM_FLAGS) $(LLVM_V_FLAGS) -mcmodel=medany -I$(CURDIR)/common -std=gnu99 -O3 -ffast-math -fno-common -fno-builtin-printf $(DEFINES) $(RISCV_WARNINGS)
+LLVM_SYSROOT   ?= $(LLVM_INSTALL_DIR)/riscv64-unknown-elf
+LLVM_FLAGS     ?= -march=rv64gcv_zfh_zvfh -mabi=$(RISCV_ABI) -mno-relax -fuse-ld=lld --sysroot=$(LLVM_SYSROOT)
+AUTOVECTORIZE  ?= 0
+LLVM_V_FLAGS   ?= $(if $(filter 1,$(AUTOVECTORIZE)),-mllvm -riscv-v-vector-bits-min=0 -mno-implicit-float,-fno-vectorize -mllvm -scalable-vectorization=off -mllvm -riscv-v-vector-bits-min=0 -mno-implicit-float)
+RISCV_FLAGS    ?= $(LLVM_FLAGS) $(LLVM_V_FLAGS) -mcmodel=medany -I$(CURDIR)/common -O3 -g -ffast-math -fno-common -fno-builtin-printf $(DEFINES) $(RISCV_WARNINGS)
 ifeq ($(LINUX),1)
-RISCV_CCFLAGS  ?= -march=rv64gcv -mabi=$(RISCV_ABI) -I$(CURDIR)/common -O3 $(DEFINES)
-RISCV_LDFLAGS  ?=
+RISCV_CCFLAGS  ?= -march=rv64gcv -mabi=$(RISCV_ABI) -I$(CURDIR)/common -O2 $(DEFINES)
+RISCV_LDFLAGS  ?= -lm -lstdc++
+RISCV_CXXFLAGS ?= -march=rv64gcv -mabi=$(RISCV_ABI) -I$(CURDIR)/common -O2 $(DEFINES)
 else
-RISCV_CCFLAGS  ?= $(RISCV_FLAGS) -ffunction-sections -fdata-sections
+RISCV_CCFLAGS  ?= $(RISCV_FLAGS) -ffunction-sections -fdata-sections -std=gnu99
 RISCV_LDFLAGS  ?= -static -nostartfiles -lm -Wl,--gc-sections -T$(CURDIR)/common/link.ld
 endif
-RISCV_CCFLAGS_SPIKE  ?= $(RISCV_FLAGS) $(SPIKE_CCFLAGS) -ffunction-sections -fdata-sections
+RISCV_CCFLAGS_SPIKE  ?= $(RISCV_FLAGS) $(SPIKE_CCFLAGS) -ffunction-sections -fdata-sections -std=gnu99
+RISCV_CCFLAGS_FPGA   ?= $(RISCV_FLAGS) $(FPGA_CCFLAGS) -ffunction-sections -fdata-sections -std=gnu99
+# softfloat branch: no hardware D on either CVA6 (scalar) or Ara (vector).
+# F32 stays (RVF=1/FPUSupportHalfSingle on the cheshire_soc fp16_only
+# branch) -- confirmed empirically that LLVM's RISC-V ISA dependency graph
+# makes Zvfh (vector half, needed for Ara's vectorized fp16 code) require
+# Zve32f, which itself requires scalar F; clang kept emitting real
+# fadd.s/fmv.w.x for plain scalar float even with an explicit
+# -target-feature -f override placed after the march-derived +f. D has no
+# such dependency and drops cleanly.
+#
+# IMPORTANT: -march does NOT behave as last-occurrence-wins the way -mabi
+# does (confirmed empirically) -- appending a second -march= to
+# RISCV_CCFLAGS_FPGA's (which already has one) merges/unions target
+# features rather than replacing them, silently leaving +d enabled despite
+# the override. So this is built as an independent flag chain from
+# LLVM_FLAGS down, never inheriting RISCV_CCFLAGS_FPGA's own -march, rather
+# than appending to it.
+#
+# Only used by vggnet16/conv_layer16only/fc_layer16only via the .fpga16
+# rules/template below -- every other app's normal .fpga build is untouched.
+#
+# -resource-dir redirects clang to an isolated compiler-rt builtins archive
+# (libclang_rt.builtins-riscv64.a) built for this same march/abi -- the
+# default one (found via the normal resource-dir) contains real hardware
+# fadd.d/fmul.d/etc for D, and critically ld.lld does NOT reject linking it
+# in the way it rejects a mismatched libc/libm (confirmed empirically: it
+# links clean but the resulting binary's .riscv.attributes shows d present
+# and objdump shows real fadd.d-class instructions). Its include/ symlinks
+# back to the real resource dir (same intrinsic headers, e.g.
+# riscv_vector.h, used for compiling too) so overriding this for both
+# compile and link steps is safe.
+RISCV_ARCH_FPGA16 ?= rv64imac_zve64f_zvfh
+RISCV_ABI_FPGA16   ?= lp64
+RISCV_RESOURCE_DIR_FPGA16 ?= $(INSTALL_DIR)/riscv-llvm-fp16only-rt/resource-dir
+# -resource-dir (above) only redirects compiler-rt's builtins archive.
+# libc.a/libm.a/libgloss.a are resolved separately, via -lc/-lm/-lgloss
+# name-search against a -L path the driver adds on its own -- and that
+# auto-added -L always points at the flat, non-multilib sysroot lib/
+# directory regardless of -march/-mabi (confirmed empirically: this
+# toolchain's driver isn't actually multilib-aware for library search,
+# despite clang --print-multi-directory reporting differing per-target
+# subdirectory names). That flat directory is still the original lp64d/
+# full-FPU newlib build. This explicit -L, placed first, makes -lc/-lm/
+# -lgloss resolve to the isolated lp64 build (rv64imac/lp64/, produced by
+# rebuilding newlib with CC_FOR_TARGET set to this march/abi) before ever
+# reaching the flat fallback.
+LLVM_FLAGS_FPGA16  ?= -march=$(RISCV_ARCH_FPGA16) -mabi=$(RISCV_ABI_FPGA16) -mno-relax -fuse-ld=lld --sysroot=$(LLVM_SYSROOT) -resource-dir=$(RISCV_RESOURCE_DIR_FPGA16) -L$(LLVM_SYSROOT)/lib/rv64imac/lp64
+RISCV_FLAGS_FPGA16 ?= $(LLVM_FLAGS_FPGA16) $(LLVM_V_FLAGS) -mcmodel=medany -I$(CURDIR)/common -O3 -g -ffast-math -fno-common -fno-builtin-printf $(DEFINES) $(RISCV_WARNINGS)
+RISCV_CCFLAGS_FPGA16 ?= $(RISCV_FLAGS_FPGA16) $(FPGA_CCFLAGS) -ffunction-sections -fdata-sections -std=gnu99
+# RISCV_LDFLAGS_FPGA's "-lm" is a name search (-l), resolved only against
+# -L paths the linker has already seen at that point on the command line --
+# and clang's driver places user -L flags (from RISCV_CCFLAGS_FPGA16 above)
+# AFTER "-lm" in the actual ld.lld invocation (confirmed via -v: "... -lm
+# --gc-sections -L<isolated> -L<flat> ... --start-group -lc -lgloss
+# --end-group ..."). So -lm silently fell back to the sysroot's default
+# (flat, hard-float) libm.a regardless of the -L override, while -lc/
+# -lgloss (positioned after the -L flags, inside --start-group) correctly
+# picked up the isolated build. An explicit archive path sidesteps -L
+# search entirely, so it isn't sensitive to this ordering.
+RISCV_LDFLAGS_FPGA16 ?= -static -nostartfiles $(LLVM_SYSROOT)/lib/rv64imac/lp64/libm.a -Wl,--gc-sections -T$(CURDIR)/common/link.fpga.ld
 RISCV_CXXFLAGS ?= $(RISCV_FLAGS) -ffunction-sections -fdata-sections
-RISCV_LDFLAGS_SPIKE  ?= $(RISCV_LDFLAGS) $(SPIKE_LDFLAGS) -Wl,--gc-sections
+RISCV_LDFLAGS_SPIKE  ?= -static -nostartfiles -lm $(SPIKE_LDFLAGS) -Wl,--gc-sections
+RISCV_LDFLAGS_FPGA   ?= -static -nostartfiles -lm -Wl,--gc-sections -T$(CURDIR)/common/link.fpga.ld
 
 # GCC Flags
-RISCV_FLAGS_GCC    ?= -mcmodel=medany -march=$(RISCV_ARCH) -mabi=$(RISCV_ABI) -I$(CURDIR)/common -static -std=gnu99 -O3 -ffast-math -fno-common -fno-builtin-printf $(DEFINES) $(RISCV_WARNINGS)
-RISCV_CCFLAGS_GCC  ?= $(RISCV_FLAGS_GCC)
+RISCV_FLAGS_GCC    ?= -mcmodel=medany -march=$(RISCV_ARCH) -mabi=$(RISCV_ABI) -I$(CURDIR)/common -static -O3 -ffast-math -fno-common -fno-builtin-printf $(DEFINES) $(RISCV_WARNINGS)
+RISCV_CCFLAGS_GCC  ?= $(RISCV_FLAGS_GCC) -std=gnu99
 RISCV_CXXFLAGS_GCC ?= $(RISCV_FLAGS_GCC)
-RISCV_LDFLAGS_GCC  ?= -static -nostartfiles -lm -lgcc $(RISCV_FLAGS_GCC) -T$(CURDIR)/common/link.ld
+RISCV_LDFLAGS_GCC  ?= -static -nostartfiles -lm -lgcc $(RISCV_FLAGS_GCC) -std=gnu99 -T$(CURDIR)/common/link.ld
 
 ifeq ($(COMPILER),gcc)
 	RISCV_OBJDUMP_FLAGS ?=
@@ -135,8 +211,17 @@ RUNTIME_LLVM  ?= common/util-llvm.c.o
 else
 RUNTIME_LLVM  ?= common/crt0-llvm.S.o common/printf-llvm.c.o common/string-llvm.c.o common/serial-llvm.c.o common/util-llvm.c.o
 endif
-RUNTIME_SPIKE ?= $(spike_env_dir)/benchmarks/common/crt.S.o.spike $(spike_env_dir)/benchmarks/common/syscalls.c.o.spike common/util.c.o.spike
-
+RUNTIME_SPIKE ?= $(spike_env_dir)/benchmarks/common/crt.S.o.spike $(spike_env_dir)/benchmarks/common/syscalls.c.o.spike common/util.c.o.spike common/printf.c.o.spike common/serial.c.o.spike
+RUNTIME_FPGA  ?= common/crt0.S.o.fpga common/printf.c.o.fpga common/string.c.o.fpga common/serial.c.o.fpga common/util.c.o.fpga
+# softfloat branch: private runtime objects for the FPUSupportHalf-only
+# apps, built via RISCV_CCFLAGS_FPGA16 (see above) instead of sharing the
+# normal .fpga objects -- printf.c's %f handling and util.c's
+# similarity_check() do real hardware double arithmetic, so they can't be
+# compiled once and shared between a full-FPU app and a no-FPU one: Make
+# only tracks file mtimes, not which flags an existing object was built
+# with, so a shared path would silently reuse whichever variant happened to
+# be built first.
+RUNTIME_FPGA16 ?= common/crt0.S.o.fpga16 common/printf.c.o.fpga16 common/string.c.o.fpga16 common/serial.c.o.fpga16 common/util.c.o.fpga16
 .INTERMEDIATE: $(RUNTIME_GCC) $(RUNTIME_LLVM)
 
 %-gcc.S.o: %.S
@@ -162,6 +247,18 @@ RUNTIME_SPIKE ?= $(spike_env_dir)/benchmarks/common/crt.S.o.spike $(spike_env_di
 
 %.c.o.spike: %.c
 	$(RISCV_CC) $(RISCV_CCFLAGS_SPIKE) -c $< -o $@
+
+%.S.o.fpga: %.S
+	$(RISCV_CC) $(RISCV_CCFLAGS_FPGA) -c $< -o $@
+
+%.c.o.fpga: %.c
+	$(RISCV_CC) $(RISCV_CCFLAGS_FPGA) -c $< -o $@
+
+%.S.o.fpga16: %.S
+	$(RISCV_CC) $(RISCV_CCFLAGS_FPGA16) -c $< -o $@
+
+%.c.o.fpga16: %.c
+	$(RISCV_CC) $(RISCV_CCFLAGS_FPGA16) -c $< -o $@
 
 %.cpp.o: %.cpp
 	$(RISCV_CXX) $(RISCV_CXXFLAGS) -c $< -o $@

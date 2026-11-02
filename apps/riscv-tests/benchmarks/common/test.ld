@@ -31,8 +31,10 @@ SECTIONS
   . = ALIGN(0x1000);
   .text : { *(.text) }
 
-  /* data segment */
-  .data : { *(.data) }
+  /* data segment */ /*it had only .data*/
+  .data : {
+    *(.data .data.* .gnu.linkonce.d.*)
+  }
 
   .sdata : {
     __global_pointer$ = . + 0x800;
@@ -45,7 +47,11 @@ SECTIONS
     *(.sbss .sbss.* .gnu.linkonce.sb.*)
     *(.scommon)
   }
-  .bss : { *(.bss) }
+  /*it had only .bss*/
+  .bss : {
+    *(.bss .bss.* .gnu.linkonce.b.*)
+    *(COMMON)
+  }
 
   /* thread-local data segment */
   .tdata :

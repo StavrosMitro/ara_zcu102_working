@@ -48,7 +48,7 @@ _start:
   li  x31,0
 
   # enable FPU and accelerator if present
-  li t0, MSTATUS_FS | MSTATUS_XS
+  li t0, MSTATUS_FS | MSTATUS_XS | MSTATUS_VS
   csrs mstatus, t0
 
   # make sure XLEN agrees with compilation choice

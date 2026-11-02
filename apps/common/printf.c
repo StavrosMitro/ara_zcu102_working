@@ -35,6 +35,20 @@
 
 #include "printf.h"
 
+// BRINGUP chain trace: each hop stores its step number to a distinct DDR word,
+// so the ARM can see exactly how far a printf call got before hanging.
+//   0x84=1 printf_ entered   0x88=2 before _vsnprintf   0x8C=3 _vsnprintf entered
+//   0x90=4 before out()      0x94=5 _out_char entered    (0x74=0xAA _putchar entered)
+// FPGA-only: these addresses are raw DDR physical addresses valid on Cheshire
+// hardware. On SPIKE (and any other target) they're unmapped, so the store
+// traps and kills the run before anything reaches the console -- hence TRACE
+// must be a no-op unless FPGA=1.
+#ifdef FPGA
+#define TRACE(addr, val) do { *(volatile unsigned int *)(addr) = (unsigned int)(val); __sync_synchronize(); } while (0)
+#else
+#define TRACE(addr, val) do {} while (0)
+#endif
+
 // define this globally (e.g. gcc -DPRINTF_INCLUDE_CONFIG_H ...) to include the
 // printf_config.h header file
 // default: undefined
@@ -123,6 +137,7 @@ static inline void _out_char(char character, void *buffer, size_t idx,
   (void)buffer;
   (void)idx;
   (void)maxlen;
+  TRACE(0x50000094UL, 5);   // _out_char reached => the indirect call worked
   if (character) {
     _putchar(character);
   }
@@ -451,6 +466,7 @@ static int _vsnprintf(out_fct_type out, char *buffer, const size_t maxlen,
                       const char *format, va_list va) {
   unsigned int flags, width, precision, n;
   size_t idx = 0U;
+  TRACE(0x5000008CUL, 3);   // _vsnprintf entered
 
   if (!buffer) {
     // use null output function
@@ -461,6 +477,7 @@ static int _vsnprintf(out_fct_type out, char *buffer, const size_t maxlen,
     // format specifier?  %[flags][width][.precision][length]
     if (*format != '%') {
       // no
+      TRACE(0x50000090UL, 4);   // about to make the INDIRECT out() call
       out(*format, buffer, idx++, maxlen);
       format++;
       continue;
@@ -752,9 +769,11 @@ static int _vsnprintf(out_fct_type out, char *buffer, const size_t maxlen,
 ///////////////////////////////////////////////////////////////////////////////
 
 int printf_(const char *format, ...) {
+  TRACE(0x50000084UL, 1);   // printf_ entered
   va_list va;
   va_start(va, format);
   char buffer[1];
+  TRACE(0x50000088UL, 2);   // va_start done, about to call _vsnprintf
   const int ret = _vsnprintf(_out_char, buffer, (size_t)-1, format, va);
   va_end(va);
   return ret;

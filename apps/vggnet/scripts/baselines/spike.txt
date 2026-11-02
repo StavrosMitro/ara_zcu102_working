@@ -1,0 +1,47 @@
+[BW] d_logits  n=3200    sum=      -0.000000  absum=       1.980487  max=    0.031250
+[BW] fc2.dW    n=19200   sum=       0.000001  absum=     217.285568  max=    0.321497
+[BW] fc2.db    n=100     sum=      -0.000000  absum=       1.408815  max=    0.054409
+[BW] d_bn5     n=6144    sum=      -0.069413  absum=      16.348497  max=    0.013206
+[BW] bn5.dg    n=192     sum=       3.005112  absum=       4.422738  max=    0.104310
+[BW] bn5.dbeta n=192     sum=      -0.243261  absum=       4.056715  max=    0.074515
+[BW] d_relu5   n=6144    sum=       0.000000  absum=      19.954067  max=    0.095562
+[BW] fc1.dW    n=294912  sum=     -74.350456  absum=    5244.240234  max=    0.299364
+[BW] fc1.db    n=192     sum=      -0.044596  absum=       1.120485  max=    0.038116
+[BW] d_pool2   n=49152   sum=       0.075396  absum=      57.261124  max=    0.006396
+[MPAUDIT] units=49152  ties=8215  index_mismatch=0  value_mismatch=0
+[BW] d_bn4     n=196608  sum=       0.380510  absum=      57.389317  max=    0.008528
+[BW] bn4.dg    n=24      sum=       0.000072  absum=       2.015579  max=    0.337575
+[BW] bn4.dbeta n=24      sum=       0.380512  absum=       1.156738  max=    0.169633
+[BW] d_relu4   n=196608  sum=       0.000053  absum=      73.707321  max=    0.011710
+[BW] conv4.dW  n=5184    sum=     -15.712611  absum=     350.936279  max=    0.330283
+[BW] conv4.db  n=24      sum=      -0.084667  absum=       0.762464  max=    0.094492
+[BW] d_bn3     n=196608  sum=      -0.156513  absum=     202.163391  max=    0.007879
+[BW] bn3.dg    n=24      sum=       0.000003  absum=       1.596228  max=    0.215285
+[BW] bn3.dbeta n=24      sum=      -0.156511  absum=       0.807307  max=    0.108914
+[BW] d_relu3   n=196608  sum=       0.000003  absum=     198.964951  max=    0.010399
+[BW] conv3.dW  n=2592    sum=     -11.612832  absum=     211.644165  max=    0.477683
+[BW] conv3.db  n=24      sum=      -0.437278  absum=       0.917414  max=    0.097740
+[BW] d_pool1   n=98304   sum=       0.006902  absum=     136.205368  max=    0.009193
+[MPAUDIT] units=98304  ties=36167  index_mismatch=0  value_mismatch=0
+[BW] d_bn2     n=393216  sum=       0.234558  absum=     136.261124  max=    0.012258
+[BW] bn2.dg    n=12      sum=       0.000002  absum=       1.326696  max=    0.453538
+[BW] bn2.dbeta n=12      sum=       0.234561  absum=       1.345425  max=    0.182988
+[BW] d_relu2   n=393216  sum=       0.000498  absum=     176.196518  max=    0.018898
+[BW] conv2.dW  n=1296    sum=      32.144382  absum=     146.955795  max=    0.724087
+[BW] conv2.db  n=12      sum=       0.345502  absum=       0.981623  max=    0.225404
+[BW] d_bn1     n=393216  sum=      -0.266531  absum=     455.032990  max=    0.011020
+[BW] bn1.dg    n=12      sum=       0.000001  absum=       1.877793  max=    0.370725
+[BW] bn1.dbeta n=12      sum=      -0.266530  absum=       1.414607  max=    0.239526
+[BW] d_relu1   n=393216  sum=      -0.000001  absum=    1394.724487  max=    0.081398
+[BW] conv1.dW  n=324     sum=      19.298906  absum=      60.771469  max=    1.431943
+[BW] conv1.db  n=12      sum=       0.296502  absum=       2.732394  max=    0.494744
+[BW] W:conv1.w n=324     sum=       4.894998  absum=      66.448112  max=    0.834251
+[BW] W:conv1.v n=324     sum=      -0.193014  absum=       0.607708  max=    0.014320
+[BW] W:conv4.w n=5184    sum=       2.371131  absum=     396.218018  max=    0.366889
+[BW] W:bn1.g   n=12      sum=      12.000001  absum=      12.000001  max=    1.003707
+[BW] W:bn1.gv  n=12      sum=      -0.000000  absum=       0.018778  max=    0.003707
+[BW] W:fc1.w   n=294912  sum=      -4.369034  absum=    8483.539062  max=    0.173195
+[BW] W:fc1.v   n=294912  sum=       0.743540  absum=      52.442612  max=    0.002994
+[BW] W:fc2.w   n=19200   sum=     -16.348940  absum=    1572.145020  max=    0.459456
+[BW] W:fc2.b   n=100     sum=       0.000000  absum=       0.014088  max=    0.000544
+epoch 1/1  lr=0.010000  loss=6.1564  train acc=0.0000 (0/32)

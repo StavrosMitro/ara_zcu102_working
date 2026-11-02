@@ -62,6 +62,11 @@ print(".section .data,\"aw\",@progbits")
 emit("M", np.array(M, dtype=np.uint64))
 emit("N", np.array(N, dtype=np.uint64))
 emit("P", np.array(P, dtype=np.uint64))
+# Big matrices go in .l2 (matches main.c's section(".l2") attribute), NOT .data.
+# Keeping them in .data pushed .rodata (printf format strings) to the tail of a
+# 532 KB image (~0x40081c60). In .l2 the linker places them last, so .text and
+# .rodata stay compact and low.
+print(".section .l2,\"aw\",@progbits")
 emit("a", A, 'NR_LANES*4')
 emit("b", B, 'NR_LANES*4')
 emit("c", C, 'NR_LANES*4')

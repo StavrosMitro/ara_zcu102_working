@@ -1,0 +1,1 @@
+batch=4 c_in=12 c_out=12 h=32 w=32 seed=42

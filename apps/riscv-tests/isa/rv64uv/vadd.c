@@ -64,8 +64,26 @@ void TEST_CASE2(void) {
   VLOAD_8(v0, 0xAA, 0xAA);
   VCLEAR(v3);
   asm volatile("vadd.vv v3, v1, v2, v0.t");
-  VCMP_U64(8, v3, 0, 4, 0, 8, 0, 12, 0, 16, 0, 4, 0, 8, 0, 12, 0, 16);
+  VCMP_U64(8, v3, 0, 4, 0, 8, 0, 12, 0, 16, 0, 4, 0, 8, 0, 12, 0, 16); //masking results, v3, obviously is preloaded with zeros
 }
+
+/* 
+// Check the results against an in-memory vector of golden values
+#define VMCMP(T,str,casenum,vexp,vgold,size)                                          \
+  printf("Checking the results of the test case %d:\n", casenum);                     \
+  MEMORY_BARRIER;                                                                     \
+  for (unsigned int i = 0; i < size; i++) {                                           \
+    if (vexp[i] != vgold[i]) {                                                        \
+      printf("Index %d FAILED. Got "#str", expected "#str".\n", i, vexp[i], vgold[i]);\
+      num_failed++;                                                                   \
+      return;                                                                         \
+    }                                                                                 \
+  }                                                                                   \
+  printf("PASSED.\n");
+*/
+
+
+
 
 void TEST_CASE3(void) {
   VSET(16, e8, m1);

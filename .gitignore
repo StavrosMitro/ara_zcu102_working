@@ -37,3 +37,8 @@ docs/source/_templates/
 
 # Editor/agent backups
 *.bak*
+
+# Assistant / editor state
+.claude/
+.codex/
+.agents/
